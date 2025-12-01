@@ -1,194 +1,261 @@
 import * as THREE from 'three';
-
 import { MTLLoader } from 'three/addons/loaders/MTLLoader.js';
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
-import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
-let camera, scene, renderer, controls;
-let cam; // the loaded camera model (OBJ)
-let camViewCamera, camRenderTarget, cameraScreen; // render-target items
+// MAIN VARS
+let camera, scene, renderer;
+let cam, camViewCamera, camRenderTarget, cameraScreen;
 
-let movingSphere;
+// DEVICE RIG
+let deviceRig;
+let objectGroup;
+
+// ROTATION STATE
+let isMouseDown = false;
+let lastX = 0, lastY = 0;
+let rotY = 0;  // horizontal rotation (left/right)
+let tiltX = 0; // tilt forward/back
+let rotationSpeed = 0.003;
+let tiltSpeed = 0.003;
+
+// CAMERA FOLLOW SMOOTHING
+let cameraOffset = new THREE.Vector3(0, 0.1, 0.25);
+let cameraCurrentPos = new THREE.Vector3();
+
+let flipped = false;
+let flipTarget = 0;  // 0° normal, 180° flipped
+
+let zoom = 0;           // initial zoom (0 = default)
+const minZoom = -0.8;  // zoom in limit
+const maxZoom = 0.2;    // zoom out limit
+const zoomSpeed = 0.01;
+
 
 init();
 
 async function init() {
 
-  // Camera — closer to the object like the first code
-  camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000)
-  camera.position.set(0, 0.1, 0.25) // same as your first code
+    // SCENE
+    scene = new THREE.Scene();
+    createPointGrid();
 
-  // Scene
-  scene = new THREE.Scene();
-  scene.background = new THREE.Color(0xf0f0f0)
+    // CAMERA
+    camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+    scene.add(camera);
 
-  // Lighting
-  const ambientLight = new THREE.AmbientLight(0xffffff, 0.3)
-  scene.add(ambientLight)
+    // LIGHTS
+    scene.add(new THREE.AmbientLight(0xffffff, 0.3));
 
-  const mainLight = new THREE.DirectionalLight(0xffffff, 1)
-  mainLight.position.set(0, 2, 3)
-  scene.add(mainLight)
+    const mainLight = new THREE.DirectionalLight(0xffffff, 1);
+    mainLight.position.set(0, 2, 3);
+    scene.add(mainLight);
 
-  const backLight = new THREE.DirectionalLight(0xffffff, 0.2)
-  backLight.position.set(-5, 5, -5)
-  scene.add(backLight)
+    const backLight = new THREE.DirectionalLight(0xffffff, 0.2);
+    backLight.position.set(-5, 5, -5);
+    scene.add(backLight);
 
-  scene.add(camera)
+    // DEVICE RIG (pivot)
+    deviceRig = new THREE.Object3D();
+    scene.add(deviceRig);
 
-  // Load model
-  const mtllloader = new MTLLoader()
-  const body_mat = await mtllloader.loadAsync('body.mtl')
-  body_mat.preload()
+    // OBJECT GROUP (your phone)
+    objectGroup = new THREE.Group();
+    deviceRig.add(objectGroup);
 
-  const cam_mat = await mtllloader.loadAsync('body.mtl')
-  cam_mat.preload()
+    // LOAD MATERIALS
+    const mtlLoader = new MTLLoader();
 
-  const btt_mat = await mtllloader.loadAsync('button.mtl')
-  btt_mat.preload()
+    const body_mat = await mtlLoader.loadAsync('body.mtl');
+    body_mat.preload();
+    const cam_mat = await mtlLoader.loadAsync('body.mtl');
+    cam_mat.preload();
+    const btt_mat = await mtlLoader.loadAsync('button.mtl');
+    btt_mat.preload();
 
-  const objloader = new OBJLoader()
-  objloader.setMaterials(body_mat)
-  const body = await objloader.loadAsync('body.obj')
-  body.rotation.x = -Math.PI / 2
-  scene.add(body)
+    const objLoader = new OBJLoader();
 
-  // Load camera (the model that will have the screen on its back)
-  objloader.setMaterials(cam_mat)
-  cam = await objloader.loadAsync('cam.obj')
-  cam.rotation.x = -Math.PI / 2
-  scene.add(cam)
+    // BODY
+    objLoader.setMaterials(body_mat);
+    const body = await objLoader.loadAsync('body.obj');
+    body.rotation.x = -Math.PI / 2;
+    objectGroup.add(body);
 
-  // Load button
-  objloader.setMaterials(btt_mat)
-  const button = await objloader.loadAsync('button.obj')
-  button.rotation.x = -Math.PI / 2
-  scene.add(button)
+    // CAMERA HEAD
+    objLoader.setMaterials(cam_mat);
+    cam = await objLoader.loadAsync('cam.obj');
+    cam.rotation.x = -Math.PI / 2;
+    objectGroup.add(cam);
 
-  // Room cube size
-  const roomSize = 2
+    // BUTTON
+    objLoader.setMaterials(btt_mat);
+    const button = await objLoader.loadAsync('button.obj');
+    button.rotation.x = -Math.PI / 2;
+    objectGroup.add(button);
 
-  // Room geometry and textures
-  const geometry = new THREE.BoxGeometry(roomSize, roomSize, roomSize)
-  const loader_text = new THREE.TextureLoader()
-  const wallTexture = loader_text.load('textures/wall.jpg')
-  const floorTexture = loader_text.load('textures/floor.jpg')
-  const ceilingTexture = loader_text.load('textures/ceiling.jpg')
+    // SCREEN CAMERA OUTPUT
+    camViewCamera = new THREE.PerspectiveCamera(60, 1, 0.01, 100);
+    camRenderTarget = new THREE.WebGLRenderTarget(512, 512);
 
-  const materials = [
-    new THREE.MeshStandardMaterial({ map: wallTexture, side: THREE.BackSide }), // right wall
-    new THREE.MeshStandardMaterial({ map: wallTexture, side: THREE.BackSide }), // left wall
-    new THREE.MeshStandardMaterial({ map: ceilingTexture, side: THREE.BackSide }), // top
-    new THREE.MeshStandardMaterial({ map: floorTexture, side: THREE.BackSide }),   // bottom
-    new THREE.MeshStandardMaterial({ map: wallTexture, side: THREE.BackSide }), // front wall
-    new THREE.MeshStandardMaterial({ map: wallTexture, side: THREE.BackSide })  // back wall
-  ]
+    const screenGeometry = new THREE.PlaneGeometry(0.083, 0.054);
+    const screenMaterial = new THREE.MeshBasicMaterial({ map: camRenderTarget.texture });
+    cameraScreen = new THREE.Mesh(screenGeometry, screenMaterial);
 
-  // Create room mesh with materials array for each face
-  const room = new THREE.Mesh(geometry, materials)
-  scene.add(room)
+    cameraScreen.position.set(-0.015, -0.012, 0.04);
+    cameraScreen.rotation.set(Math.PI / 2, 0, Math.PI);
+    cam.add(cameraScreen);
 
+    // LOAD ENVIRONMENT
+    const gltfLoader = new GLTFLoader();
+    gltfLoader.load('scene/scene.gltf', (gltf) => {
+        const street = gltf.scene;
+        street.scale.set(0.5, 0.5, 0.5);
+        street.position.set(0.1, 0.2, -2);
+        scene.add(street);
+    });
 
-  // Renderer
-  renderer = new THREE.WebGLRenderer({ antialias: true })
-  renderer.setPixelRatio(window.devicePixelRatio)
-  renderer.setSize(window.innerWidth, window.innerHeight)
-  renderer.setAnimationLoop(animate)
-  document.body.appendChild(renderer.domElement)
+    // RENDERER
+    renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setPixelRatio(window.devicePixelRatio);
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setAnimationLoop(animate);
+    document.body.appendChild(renderer.domElement);
 
-  // Controls
-  controls = new OrbitControls(camera, renderer.domElement)
-  controls.enableDamping = true
-  controls.minDistance = 0.1 // closer to the object
-  controls.maxDistance = 2   // allow zooming out a little
-  controls.target.set(0, 0, 0) // make sure controls focus on the object
+    // MOUSE CONTROLS
+    renderer.domElement.addEventListener("mousedown", (e) => {
+        isMouseDown = true;
+        lastX = e.clientX;
+        lastY = e.clientY;
+    });
 
-  // --- RENDER TARGET SETUP (the "screen" on the back of the camera model) ---
-  // Secondary camera that will "look out" from the camera model
-  camViewCamera = new THREE.PerspectiveCamera(60, 1, 0.01, 100);
-  // render target
-  camRenderTarget = new THREE.WebGLRenderTarget(512, 512, {
-    // optional: match encoding if you need color space conversion
-    // type: THREE.UnsignedByteType
-  });
+    window.addEventListener("mouseup", () => {
+        isMouseDown = false;
+    });
 
-  // screen mesh that displays the render target texture
-  // Adjust the plane size/position to fit your OBJ camera's back surface
-  const screenGeometry = new THREE.PlaneGeometry(0.083, 0.054); // tweak size to match model
-  const screenMaterial = new THREE.MeshBasicMaterial({ map: camRenderTarget.texture });
-  cameraScreen = new THREE.Mesh(screenGeometry, screenMaterial);
+    window.addEventListener("mousemove", (e) => {
+        if (!isMouseDown) return;
 
-  // Position screen on the back of camera model
-  cameraScreen.position.set(-0.015, -0.012, 0.04); // moved down on Y
-  cameraScreen.rotation.set(Math.PI/2,0, Math.PI); 
-  cam.add(cameraScreen);
+        let dx = e.clientX - lastX;
+        let dy = e.clientY - lastY;
+        lastX = e.clientX;
+        lastY = e.clientY;
 
-    // --- MOVING SPHERE IN FRONT OF THE CAMERA ---
-  const sphereGeo = new THREE.SphereGeometry(0.02, 32, 32);
-  const sphereMat = new THREE.MeshStandardMaterial({ color: 0xff5555 });
-  movingSphere = new THREE.Mesh(sphereGeo, sphereMat);
-  scene.add(movingSphere);
+        rotY += dx * rotationSpeed; // horizontal spin
+        tiltX += dy * tiltSpeed;    // tilt forward/back
 
-  // Resize
-  window.addEventListener('resize', onWindowResize)
+                // ---- ROTATION LIMITS ----
+        const maxTilt = Math.PI / 5;   // 30 degrees forward/back
+        const maxSide = Math.PI / 5;   // 60 degrees left/right
+
+        // Clamp vertical tilt
+        tiltX = Math.max(-maxTilt, Math.min(maxTilt, tiltX));
+
+        // Clamp horizontal rotation
+        rotY = Math.max(-maxSide, Math.min(maxSide, rotY));
+    });
+
+          // ---- DOUBLE CLICK TO FLIP ----
+      window.addEventListener("dblclick", () => {
+          flipped = !flipped;
+          flipTarget = flipped ? Math.PI : 0;
+          objectGroup.rotation.y = flipped ? Math.PI : 0;
+      });
+
+      // ---- PRESS R TO FLIP ----
+      window.addEventListener("keydown", (e) => {
+          if (e.key.toLowerCase() === "r") {
+              flipped = !flipped;
+              flipTarget = flipped ? Math.PI : 0;
+              objectGroup.rotation.y = flipped ? Math.PI : 0;
+          }
+      });
+
+      window.addEventListener("wheel", (e) => {
+          zoom += e.deltaY * zoomSpeed;
+          zoom = Math.max(minZoom, Math.min(maxZoom, zoom)); // clamp zoom
+      });
+
+    window.addEventListener("resize", onWindowResize);
 }
 
 function onWindowResize() {
-  camera.aspect = window.innerWidth / window.innerHeight
-  camera.updateProjectionMatrix()
-  renderer.setSize(window.innerWidth, window.innerHeight)
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+}
+
+function createPointGrid() {
+    const gridSize = 50;
+    const spacing = 0.5;
+    const points = [];
+
+    for (let x = -gridSize; x <= gridSize; x++) {
+        for (let y = -gridSize; y <= gridSize; y++) {
+            points.push(x * spacing, y * spacing, -5);
+        }
+    }
+
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute("position", new THREE.Float32BufferAttribute(points, 3));
+
+    const material = new THREE.PointsMaterial({
+        color: 0xffffff,
+        size: 0.02,
+        sizeAttenuation: true
+    });
+
+    const gridPoints = new THREE.Points(geometry, material);
+    scene.add(gridPoints);
+
+    scene.background = new THREE.Color(0x000000);
 }
 
 function animate() {
-  controls.update();
 
-  // if cam or cameraScreen not ready yet, just render normally
-  if (!cam || !camViewCamera || !camRenderTarget || !cameraScreen) {
+    // --- APPLY RIG ROTATION ---
+    deviceRig.rotation.y = rotY;     // horizontal spin
+    deviceRig.rotation.x = tiltX;    // tilt forward/back
+
+        // --- FOLLOW CAMERA (smooth) ---
+    let desiredPos = cameraOffset.clone();
+
+    // Apply rig rotation if needed
+    desiredPos.applyQuaternion(deviceRig.quaternion);
+
+    // Add zoom along the rig's local forward direction (negative Z)
+    let forward = new THREE.Vector3(0, 0, -0.2);
+    forward.applyQuaternion(deviceRig.quaternion);
+    desiredPos.add(forward.multiplyScalar(zoom));
+
+    desiredPos.add(deviceRig.position);
+
+    if (!flipped)
+      // Smooth follow
+      cameraCurrentPos.lerp(desiredPos, 0.12);
+      camera.position.copy(cameraCurrentPos);
+      camera.lookAt(deviceRig.position);
+
+
+    // --- RENDER SCREEN CAMERA ---
+    if (cam && camViewCamera) {
+        cam.updateWorldMatrix(true, false);
+
+        camViewCamera.position.copy(cam.getWorldPosition(new THREE.Vector3()));
+        camViewCamera.quaternion.copy(cam.getWorldQuaternion(new THREE.Quaternion()));
+
+        camViewCamera.rotateX(Math.PI / 2);
+        camViewCamera.rotateZ(Math.PI);
+
+        camViewCamera.translateZ(-0.034);
+        camViewCamera.translateY(-0.04);
+        camViewCamera.translateX(0.006);
+
+        renderer.setRenderTarget(camRenderTarget);
+        renderer.clear();
+        renderer.render(scene, camViewCamera);
+        renderer.setRenderTarget(null);
+    }
+
+    // --- MAIN RENDER ---
     renderer.render(scene, camera);
-    return;
-  }
-
-  // Sync position/orientation
-  cam.updateWorldMatrix(true, false);
-  camViewCamera.position.copy(cam.getWorldPosition(new THREE.Vector3()));
-  camViewCamera.quaternion.copy(cam.getWorldQuaternion(new THREE.Quaternion()));
-
-  // Fix rotation (your OBJ is rotated -90°)
-  camViewCamera.rotateX(Math.PI / 2);
-  camViewCamera.rotateZ(Math.PI);
-
-  // ➜ Move slightly forward so camera is in front of the lens, not inside mesh
-  camViewCamera.translateZ(-0.034);
-  camViewCamera.translateY(-0.04);
-  camViewCamera.translateX(0.006);
-
-  // positionned right at the end of the len
-
-  const t = performance.now() * 0.001;
-  if (cam) {
-      const basePos = cam.getWorldPosition(new THREE.Vector3());
-
-      // Sphere movement: sinusoidal Z movement in front of the lens
-      movingSphere.position.set(
-          basePos.x - 0.1 - Math.sin(t) * 0.05,
-          basePos.y + 0.04,
-          basePos.z - 0.2,  // 10 cm in front + oscillation
-      );
-  }
-  
-
-  // Hide the screen mesh so it is not captured by the camera feed (avoids recursion/feedback)
-  cameraScreen.visible = false;
-
-  // Render the scene from the camera model's POV into the render target
-  renderer.setRenderTarget(camRenderTarget);
-  renderer.clear(); // ensure previous content is cleared
-  renderer.render(scene, camViewCamera);
-
-  // Restore default framebuffer and make the screen visible again
-  renderer.setRenderTarget(null);
-  cameraScreen.visible = true;
-
-  // Finally render the full scene to the canvas
-  renderer.render(scene, camera);
 }
