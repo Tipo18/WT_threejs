@@ -1,3 +1,5 @@
+src
+
 # Logs
 logs
 *.log
@@ -12,7 +14,6 @@ node_modules
 dist-ssr
 coverage
 *.local
-dist
 
 /cypress/videos/
 /cypress/screenshots/
