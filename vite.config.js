@@ -6,7 +6,8 @@ import vueDevTools from 'vite-plugin-vue-devtools'
 
 // https://vite.dev/config/
 export default defineConfig({
-  base: '/WT_threejs/',  // Add this line for GitHub Pages
+  // base: '/WT_threejs/',  // Add this line for GitHub Pages build
+  base:'./', // for local build
   plugins: [
     vue(),
     vueDevTools(),
