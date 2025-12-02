@@ -31,12 +31,26 @@ const minZoom = -0.8;  // zoom in limit
 const maxZoom = 0.2;    // zoom out limit
 const zoomSpeed = 0.01;
 
-
 init();
 
 async function init() {
 
+    // ----------------------------
+    // DISABLE PAGE SCROLLING
+    // ----------------------------
+    document.body.style.overflow = 'hidden';          // <--- prevents page scroll
+    document.body.style.margin = '0';                // ensure no body margins
+    document.body.style.height = '100vh';
+    document.body.style.width = '100vw';
+    window.scrollTo(0, 0);                           // force scroll to top
+
+    // Prevent wheel from scrolling page
+    window.addEventListener('wheel', (e) => e.preventDefault(), { passive: false }); // <--- prevent default scrolling
+    window.addEventListener('touchmove', (e) => e.preventDefault(), { passive: false }); // for mobile
+
+    // ----------------------------
     // SCENE
+    // ----------------------------
     scene = new THREE.Scene();
     createPointGrid();
 
@@ -114,14 +128,22 @@ async function init() {
         scene.add(street);
     });
 
+    // ----------------------------
     // RENDERER
+    // ----------------------------
     renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setPixelRatio(window.devicePixelRatio);
     renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.domElement.style.display = 'block';  // <--- remove inline spacing
+    renderer.domElement.style.position = 'fixed'; // <--- fix canvas to viewport
+    renderer.domElement.style.top = '0';
+    renderer.domElement.style.left = '0';
     renderer.setAnimationLoop(animate);
     document.body.appendChild(renderer.domElement);
 
+    // ----------------------------
     // MOUSE CONTROLS
+    // ----------------------------
     renderer.domElement.addEventListener("mousedown", (e) => {
         isMouseDown = true;
         lastX = e.clientX;
@@ -140,40 +162,71 @@ async function init() {
         lastX = e.clientX;
         lastY = e.clientY;
 
-        rotY += dx * rotationSpeed; // horizontal spin
-        tiltX += dy * tiltSpeed;    // tilt forward/back
+        rotY += dx * rotationSpeed;
+        tiltX += dy * tiltSpeed;
 
-                // ---- ROTATION LIMITS ----
-        const maxTilt = Math.PI / 5;   // 30 degrees forward/back
-        const maxSide = Math.PI / 5;   // 60 degrees left/right
+        // ---- ROTATION LIMITS ----
+        const maxTilt = Math.PI / 5;
+        const maxSide = Math.PI / 5;
 
-        // Clamp vertical tilt
         tiltX = Math.max(-maxTilt, Math.min(maxTilt, tiltX));
-
-        // Clamp horizontal rotation
         rotY = Math.max(-maxSide, Math.min(maxSide, rotY));
     });
 
-          // ---- DOUBLE CLICK TO FLIP ----
-      window.addEventListener("dblclick", () => {
-          flipped = !flipped;
-          flipTarget = flipped ? Math.PI : 0;
-          objectGroup.rotation.y = flipped ? Math.PI : 0;
-      });
+    // ---- DOUBLE CLICK TO FLIP ----
+    window.addEventListener("dblclick", () => {
+        flipped = !flipped;
+        flipTarget = flipped ? Math.PI : 0;
+        objectGroup.rotation.y = flipped ? Math.PI : 0;
+    });
 
-      // ---- PRESS R TO FLIP ----
-      window.addEventListener("keydown", (e) => {
-          if (e.key.toLowerCase() === "r") {
-              flipped = !flipped;
-              flipTarget = flipped ? Math.PI : 0;
-              objectGroup.rotation.y = flipped ? Math.PI : 0;
-          }
-      });
+    // ---- PRESS R TO FLIP ----
+    window.addEventListener("keydown", (e) => {
+        if (e.key.toLowerCase() === "r") {
+            flipped = !flipped;
+            flipTarget = flipped ? Math.PI : 0;
+            objectGroup.rotation.y = flipped ? Math.PI : 0;
+        }
+    });
 
-      window.addEventListener("wheel", (e) => {
-          zoom += e.deltaY * zoomSpeed;
-          zoom = Math.max(minZoom, Math.min(maxZoom, zoom)); // clamp zoom
-      });
+    // ---- SCROLL ZOOM ----
+    window.addEventListener("wheel", (e) => {
+        zoom += e.deltaY * zoomSpeed;
+        zoom = Math.max(minZoom, Math.min(maxZoom, zoom)); // clamp zoom
+    });
+
+    // ---- create overlay styles ----
+    const overlayCss = `
+      #commands {
+        position: fixed;
+        top: 20px;
+        left: 20px;
+        max-width: 350px;
+        background: rgba(0,0,0,0.45);
+        color: #fff;
+        padding: 10px 14px;
+        border-radius: 8px;
+        z-index: 9999;
+        pointer-events: none;
+        font-family: Arial, sans-serif;
+        font-size: 20px;
+        line-height: 1.5;  /* optional, makes text more readable */
+      }
+    `;
+    const styleEl = document.createElement('style');
+    styleEl.id = 'commands-style';
+    styleEl.innerHTML = overlayCss;
+    document.head.appendChild(styleEl);
+
+    const commandsEl = document.createElement('div');
+    commandsEl.id = 'commands';
+    commandsEl.innerHTML = `
+      <strong>Controls</strong><br>
+      Drag & Move → Tilt<br>
+      Scroll → Zoom In/Out<br>
+      Double-click or R → View Camera
+    `;
+    document.body.appendChild(commandsEl);
 
     window.addEventListener("resize", onWindowResize);
 }

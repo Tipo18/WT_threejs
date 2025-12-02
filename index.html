@@ -1,14 +1,11 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>My ThreeJs Project</title>
 
-    <!-- Import the css file -->
-    <link rel="stylesheet" type="text/css" href="style.css">
-
-    <!-- You can change 0.160.0 to any other availble Three.js version to match your requirements -->
+    <link rel="stylesheet" href="style.css" />
 
     <script type="importmap">
         {
@@ -18,10 +15,13 @@
             }
         }
     </script>
-  <script type="module" crossorigin src="/WT_threejs/assets/index-C3W3zqNm.js"></script>
-</head>
-<body>
 
-    <!-- The import should happen after creating the other HTML elements since you will be importing them -->
+    <script type="module" src="/src/script.js"></script>
+</head>
+
+<body>
+  <!-- Three.js script after HTML elements -->
+  <script type="module" src="/src/script.js"></script>
 </body>
+
 </html>
